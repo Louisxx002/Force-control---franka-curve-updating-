@@ -23,7 +23,7 @@ DEFAULT_CONFIG = {
     "min_neighbors": 18,
     "max_neighbor_distance_m": 0.025,
     "max_depth_jump_m": 0.012,
-    "max_surface_residual_m": 0.002,
+    "max_surface_residual_m": 0.004,
     "max_normal_angle_deg": 25.0,
     "max_scan_direction_angle_deg": 45.0,
     "max_view_angle_deg": 75.0,
