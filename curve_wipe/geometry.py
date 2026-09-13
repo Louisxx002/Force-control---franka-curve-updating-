@@ -122,8 +122,12 @@ def segment_white(bgr, roi, *, max_saturation=80, min_value=170,
 
 
 def segment_black(bgr, roi, *, max_value=90, min_component_pixels=80,
-                  min_aspect_ratio=3.0):
-    """Return the largest non-border dark elongated component."""
+                  min_aspect_ratio=3.0, allow_border=False):
+    """Return the largest dark elongated component.
+
+    ``allow_border`` is used by the visible-extent planner: a tape end may be
+    clipped by the camera frame, so the visible component remains the target.
+    """
     bgr = np.asarray(bgr)
     roi = np.asarray(roi)
     if bgr.ndim != 3 or bgr.shape[2] != 3 or bgr.dtype != np.uint8:
@@ -137,7 +141,7 @@ def segment_black(bgr, roi, *, max_value=90, min_component_pixels=80,
     for i in range(1, count):
         x, y, width, height, area = stats[i]
         touches_border = x == 0 or y == 0 or x + width >= mask.shape[1] or y + height >= mask.shape[0]
-        if area < min_component_pixels or touches_border:
+        if area < min_component_pixels or (touches_border and not allow_border):
             continue
         yy, xx = np.where(labels == i)
         if len(xx) < 3:
@@ -154,8 +158,9 @@ def segment_black(bgr, roi, *, max_value=90, min_component_pixels=80,
 
 
 def segment_hsv_component(bgr, roi, hsv_low, hsv_high, *,
-                          min_component_pixels=80, min_aspect_ratio=2.5):
-    """Select one elongated, non-border component from an HSV range."""
+                          min_component_pixels=80, min_aspect_ratio=2.5,
+                          allow_border=False):
+    """Select one elongated component from an HSV range."""
     bgr = np.asarray(bgr)
     roi = np.asarray(roi)
     if bgr.ndim != 3 or bgr.shape[2] != 3 or bgr.dtype != np.uint8:
@@ -175,7 +180,7 @@ def segment_hsv_component(bgr, roi, hsv_low, hsv_high, *,
         x, y, width, height, area = stats[i]
         touches_border = (x == 0 or y == 0 or
                           x + width >= mask.shape[1] or y + height >= mask.shape[0])
-        if area < min_component_pixels or touches_border:
+        if area < min_component_pixels or (touches_border and not allow_border):
             continue
         yy, xx = np.where(labels == i)
         if len(xx) < 3:
@@ -190,7 +195,7 @@ def segment_hsv_component(bgr, roi, hsv_low, hsv_high, *,
     return labels == selected
 
 
-def segment_target(bgr, roi, target_color='red'):
+def segment_target(bgr, roi, target_color='red', *, allow_border=False):
     """Segment the configured wiping target while preserving red defaults."""
     if target_color == 'red':
         return segment_red(bgr, roi)
@@ -199,12 +204,14 @@ def segment_target(bgr, roi, target_color='red'):
                              min_component_pixels=80, min_aspect_ratio=3.0)
     if target_color == 'black':
         return segment_black(bgr, roi, max_value=90,
-                             min_component_pixels=80, min_aspect_ratio=3.0)
+                             min_component_pixels=80, min_aspect_ratio=3.0,
+                             allow_border=allow_border)
     if target_color in HSV_TARGET_RANGES:
         low, high = HSV_TARGET_RANGES[target_color]
         return segment_hsv_component(bgr, roi, low, high,
                                      min_component_pixels=80,
-                                     min_aspect_ratio=2.5)
+                                     min_aspect_ratio=2.5,
+                                     allow_border=allow_border)
     raise ValueError(f"target_color must be one of {', '.join(TARGET_COLORS)}")
 
 

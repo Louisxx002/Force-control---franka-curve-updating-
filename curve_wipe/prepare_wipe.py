@@ -1,4 +1,4 @@
-"""Return to the saved observation pose, then freshly scan and plan the full strip.
+"""Return to the saved observation pose, then freshly scan and plan the visible strip extent.
 
 Default is a read-only pose check. --execute authorizes guarded free-space return
 and camera capture, but never starts contact wiping or changes the gripper.

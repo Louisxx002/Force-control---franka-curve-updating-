@@ -45,8 +45,10 @@ def validate_full_plan(plan, max_surface_height_m, max_normal_angle_deg, max_app
         raise ValueError('plan and snapshot pose definitions differ')
     checks=[]
     for i,s in enumerate(plan['segments']):
-        if s.get('lane_index')!=i or s.get('covers_both_longitudinal_ends') is not True:
-            raise ValueError('missing or out-of-order full-length lane')
+        visible_complete = s.get('covers_visible_longitudinal_extent',
+                                 s.get('covers_both_longitudinal_ends')) is True
+        if s.get('lane_index')!=i or not visible_complete:
+            raise ValueError('missing or out-of-order visible target lane')
         p=prepare_plan(plan,i,max_surface_height_m=max_surface_height_m,max_normal_angle_deg=max_normal_angle_deg)
         entry=validate_live_pose(p,pose,flange,max_approach_m)
         checks.append(dict(lane=i,length_mm=p['length_m']*1000,approach_mm=float(np.linalg.norm(entry-pose[:3,3])*1000)))

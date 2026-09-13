@@ -17,6 +17,8 @@ def test_letters_do_not_split_full_length_lanes():
     plan,red,envelope=plan_strip(bgr,xyz,roi,np.eye(4),np.eye(4),lane_count=5)
     assert envelope.sum() > red.sum()
     assert len(plan['segments']) == 5 and plan['metadata']['whole_strip_paths_complete']
+    assert plan['metadata']['visible_extent_only'] is True
+    assert plan['metadata']['coverage_scope'] == 'currently_visible_connected_component'
     for s in plan['segments']:
         us=[w['pixel_uv'][0] for w in s['waypoints']]
         assert min(us) == 20 and max(us) == 180
@@ -60,9 +62,11 @@ def test_two_separate_targets_require_roi():
     with pytest.raises(ValueError,match='exactly one'):strip_envelope(bgr,roi)
 
 
-def test_clipped_roi_rejected():
+def test_clipped_roi_defines_visible_extent():
     bgr,xyz,roi=scene();roi[:,:50]=False
-    with pytest.raises(ValueError,match='border'):strip_envelope(bgr,roi)
+    target, envelope, columns, low, high = strip_envelope(bgr,roi)
+    assert columns[0] == 50 and columns[-1] == 180
+    assert target.sum() > 0 and envelope.sum() >= target.sum()
 
 
 def test_tcp_transform_and_lane_spacing():

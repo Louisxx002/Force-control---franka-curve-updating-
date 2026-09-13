@@ -1,7 +1,8 @@
-"""Plan an entire nearly horizontal target strip, including printed lettering.
+"""Plan the currently visible extent of a target strip.
 
-Preview only. Every lane must span the whole target; never select a short fragment
-as a substitute. Missing depth or surface discontinuities block the full plan.
+Preview only. The selected connected component is the complete target for this
+scan; material hidden behind the tool or outside the image is intentionally not
+inferred. Missing depth or surface discontinuities still block the visible plan.
 """
 import argparse
 import hashlib
@@ -92,11 +93,7 @@ def _principal_strip_pixels(target):
 
 
 def strip_envelope(bgr, roi, target_color='red'):
-    target = segment_target(bgr, roi, target_color)
-    interior = cv2.erode(np.asarray(roi, np.uint8), np.ones((3,3),np.uint8),
-                         borderType=cv2.BORDER_CONSTANT, borderValue=0).astype(bool)
-    if np.any(target & ~interior):
-        raise ValueError('strip touches image/ROI border; capture both ends completely')
+    target = segment_target(bgr, roi, target_color, allow_border=True)
     contours, _ = cv2.findContours(target.astype('uint8'), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     contours = [c for c in contours if cv2.contourArea(c) >= 80]
     if len(contours) != 1:
@@ -105,8 +102,6 @@ def strip_envelope(bgr, roi, target_color='red'):
     x, y, width, height = cv2.boundingRect(contour)
     if target_color != 'black' and width < 3*height:
         raise ValueError('this planner requires a nearly horizontal elongated strip')
-    if x == 0 or y == 0 or x+width >= target.shape[1] or y+height >= target.shape[0]:
-        raise ValueError('strip touches image border; capture both ends completely')
     # Filled external outline identifies the same object across printed letters.
     # It never changes XYZ or marks invalid depth as measured.
     filled = np.zeros(target.shape, np.uint8)
@@ -198,6 +193,9 @@ def plan_strip(bgr, xyz, roi, tbc, tet, lane_count=1, tgrip=None, target_color='
         points=np.array([w['surface_point_base_m'] for w in waypoints])
         segments.append(dict(lane_index=lane, width_fraction=float(fraction), waypoints=waypoints,
                              length_m=float(np.linalg.norm(np.diff(points,axis=0),axis=1).sum()),
+                             # These are the two ends of the visible component;
+                             # hidden or out-of-frame tape is outside this plan.
+                             covers_visible_longitudinal_extent=True,
                              covers_both_longitudinal_ends=True))
     complete = len(segments) == lane_count
     meta=dict(executable_candidate=False, offline_preview_only=True, execution_mode='full_strip_preview',
@@ -216,7 +214,9 @@ def plan_strip(bgr, xyz, roi, tbc, tet, lane_count=1, tgrip=None, target_color='
               surface_method='measured XYZ and local PCA, independent of white lettering color',
               failures=failures, config=cfg,
               gripper_center_path_included=tgrip is not None,
-              execution_note='Preview only. All lanes required; never execute only the longest fragment. Tool contact width and transitions still require validation.')
+              visible_extent_only=True, occluded_extent_ignored=True,
+              coverage_scope='currently_visible_connected_component',
+              execution_note='Preview only. The visible connected component is the complete target for this scan; occluded or out-of-frame extent is ignored. Tool contact width and transitions still require validation.')
     if complete:
         dense=np.asarray(dense_lanes)
         meta['max_neighbor_lane_gap_m']=float(np.linalg.norm(np.diff(dense,axis=0),axis=2).max()) if lane_count>1 else None
