@@ -424,7 +424,13 @@ def execute(plan, *, segment=None, ip="172.16.0.2", log_path=None, max_approach_
                 # this cell. This is not a replacement for whole-path IK.
                 if not np.isfinite(joints).all() or joints[1] >= 1.72:
                     raise ExecutionError('joint 2 reached conservative 1.72 rad guard; stop before previous boundary')
-                if robot.has_errors or state.robot_mode not in (franky.RobotMode.Idle, franky.RobotMode.Move):
+                # During asynchronous Cartesian commands the state normally
+                # reports RobotMode.Move.  Compare enum values explicitly so
+                # an otherwise healthy moving state is not mistaken for a
+                # mode fault by wrapper/version differences in franky.
+                mode_value = getattr(state.robot_mode, "value", state.robot_mode)
+                allowed_modes = (franky.RobotMode.Idle.value, franky.RobotMode.Move.value)
+                if robot.has_errors or mode_value not in allowed_modes:
                     raise ExecutionError(f"robot fault/mode change: {state.robot_mode}")
                 if not np.isfinite(current).all():
                     raise ExecutionError("nonfinite robot pose")
