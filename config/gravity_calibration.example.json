@@ -1,0 +1,9 @@
+{
+  "status": "template_not_calibrated",
+  "note": "EXAMPLE ONLY. Replace values with measurements for this sensor/tool mount. Never mark validated_current_mount without independent free-space multi-orientation residual verification.",
+  "T_ee_sensor": [[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]],
+  "bias_sensor_6": [0,0,0,0,0,0],
+  "gravity_base_N": [0,0,0],
+  "com_sensor_m": [0,0,0],
+  "sensor_sign": 1
+}

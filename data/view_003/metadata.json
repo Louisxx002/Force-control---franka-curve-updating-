@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "source": "live_realsense",
+  "camera_serial": "243722072895",
+  "xyz_frame": "C_LRGB",
+  "xyz_units": "metres",
+  "synthetic": false,
+  "projection": "SDK depth pointcloud + RGB texture mapping + nearest z buffer; no hole fill",
+  "host_start_monotonic_s": 305.030829631,
+  "host_end_monotonic_s": 305.064198976,
+  "color_timestamp_ms": 1789195476058.0837,
+  "depth_timestamp_ms": 1789195476058.0256,
+  "timestamp_domain": "timestamp_domain.global_time",
+  "rgb_intrinsics": {
+    "fx": 606.2020263671875,
+    "fy": 606.044677734375,
+    "ppx": 322.3637390136719,
+    "ppy": 254.60824584960938,
+    "width": 640,
+    "height": 480,
+    "distortion": "distortion.inverse_brown_conrady",
+    "coeffs": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ]
+  },
+  "robot_before": null,
+  "robot_after": null,
+  "static_pose_validated": false
+}
