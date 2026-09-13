@@ -15,7 +15,7 @@ from .execute import prepare_plan, ExecutionError
 
 
 WHITE_FILL_RADIUS_PX = 18
-WHITE_FILL_MAX_RMS_M = 0.004
+WHITE_FILL_MAX_RMS_M = 0.003
 WHITE_CENTERLINE_SMOOTH_PASSES = 3
 
 
@@ -23,7 +23,7 @@ def _fill_white_centerline(xyz, valid, target, columns, rows):
     """Estimate reflective-tape holes from nearby non-tape surface points.
 
     The tape itself is excluded from each fit.  A fit is accepted only when it
-    has enough neighbors and sub-4 mm RMS residual; otherwise the lane remains
+    has enough neighbors and sub-3 mm RMS residual; otherwise the lane remains
     invalid and the full-strip admission check rejects execution.
     """
     filled = 0
