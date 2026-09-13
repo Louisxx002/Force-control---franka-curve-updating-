@@ -16,6 +16,7 @@ from .capture import capture, read_state
 from .full_strip import build
 from .execute import prepare_plan, validate_live_pose, execute, ExecutionError
 from .reposition import direct_reference_return
+from .geometry import TARGET_COLORS
 
 DEFAULT_HEIGHT_MM=30.
 DEFAULT_ANGLE_DEG=45.
@@ -165,7 +166,8 @@ def main():
     p.add_argument('--speed-scale',type=float,default=1.5,help='motion speed multiplier relative to original demo')
     p.add_argument('--max-approach-mm',type=float,default=DEFAULT_APPROACH_MM)
     p.add_argument('--output',type=Path,default=ROOT/'output'/('cycle_'+datetime.now().strftime('%Y%m%d_%H%M%S')))
-    p.add_argument('--target-color',choices=('red','white','black'),default='red')
+    p.add_argument('--target-color',choices=TARGET_COLORS,default='red',
+                   help='target tape color; detection uses HSV plus elongated-component selection')
     a=p.parse_args()
     try:r=cycle(a.output,a.execute,a.snapshot,a.reference,a.lanes,a.max_surface_height_mm,a.max_normal_angle_deg,a.max_approach_mm,a.speed_scale,a.target_color)
     except Exception as exc:p.exit(1,str(exc)+'\n')

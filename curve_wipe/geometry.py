@@ -37,6 +37,32 @@ DEFAULT_CONFIG = {
     "hsv_high_2": [179, 255, 255],
 }
 
+# Target names accepted by the full-strip entry point.  The detector returns
+# the same binary mask for every color, so the geometry and force-control
+# stages do not depend on which color was selected.
+TARGET_COLORS = (
+    'red', 'orange', 'yellow', 'lime', 'green', 'cyan', 'blue',
+    'violet', 'purple', 'magenta', 'pink', 'brown', 'gray', 'white', 'black',
+)
+
+# OpenCV hue is 0..179.  Saturation/value limits intentionally leave some
+# margin for camera exposure changes; component selection below rejects large
+# background regions and keeps one elongated wiping object.
+HSV_TARGET_RANGES = {
+    'orange': ((5, 80, 45), (24, 255, 255)),
+    'yellow': ((20, 70, 45), (40, 255, 255)),
+    'lime': ((35, 70, 35), (65, 255, 255)),
+    'green': ((40, 70, 30), (90, 255, 255)),
+    'cyan': ((80, 60, 35), (105, 255, 255)),
+    'blue': ((95, 60, 30), (135, 255, 255)),
+    'violet': ((125, 55, 30), (150, 255, 255)),
+    'purple': ((130, 55, 30), (165, 255, 255)),
+    'magenta': ((145, 55, 35), (179, 255, 255)),
+    'pink': ((155, 35, 70), (179, 255, 255)),
+    'brown': ((5, 70, 25), (25, 255, 190)),
+    'gray': ((0, 0, 35), (179, 55, 210)),
+}
+
 
 def segment_red(
     bgr, roi, hsv_low_1=(0, 80, 50), hsv_high_1=(12, 255, 255),
@@ -127,6 +153,43 @@ def segment_black(bgr, roi, *, max_value=90, min_component_pixels=80,
     return labels == selected
 
 
+def segment_hsv_component(bgr, roi, hsv_low, hsv_high, *,
+                          min_component_pixels=80, min_aspect_ratio=2.5):
+    """Select one elongated, non-border component from an HSV range."""
+    bgr = np.asarray(bgr)
+    roi = np.asarray(roi)
+    if bgr.ndim != 3 or bgr.shape[2] != 3 or bgr.dtype != np.uint8:
+        raise ValueError("bgr must be H x W x 3 uint8")
+    if roi.dtype != np.bool_ or roi.shape != bgr.shape[:2]:
+        raise ValueError("roi must be an explicit H x W boolean mask")
+    low, high = np.asarray(hsv_low, dtype=np.uint8), np.asarray(hsv_high, dtype=np.uint8)
+    if low.shape != (3,) or high.shape != (3,) or np.any(low > high):
+        raise ValueError("HSV bounds must be ordered 3-vectors")
+    if min_component_pixels < 1 or min_aspect_ratio <= 1:
+        raise ValueError("invalid component selection parameters")
+    hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
+    mask = (cv2.inRange(hsv, low, high) > 0) & roi
+    count, labels, stats, _ = cv2.connectedComponentsWithStats(mask.astype(np.uint8), 8)
+    candidates = []
+    for i in range(1, count):
+        x, y, width, height, area = stats[i]
+        touches_border = (x == 0 or y == 0 or
+                          x + width >= mask.shape[1] or y + height >= mask.shape[0])
+        if area < min_component_pixels or touches_border:
+            continue
+        yy, xx = np.where(labels == i)
+        if len(xx) < 3:
+            continue
+        eigenvalues = np.linalg.eigvalsh(np.cov(np.column_stack((xx, yy)).T))
+        elongation = np.sqrt(eigenvalues[-1] / max(eigenvalues[0], 1e-12))
+        if elongation >= min_aspect_ratio:
+            candidates.append((int(area), i))
+    if not candidates:
+        return np.zeros_like(roi)
+    _, selected = max(candidates)
+    return labels == selected
+
+
 def segment_target(bgr, roi, target_color='red'):
     """Segment the configured wiping target while preserving red defaults."""
     if target_color == 'red':
@@ -137,7 +200,12 @@ def segment_target(bgr, roi, target_color='red'):
     if target_color == 'black':
         return segment_black(bgr, roi, max_value=90,
                              min_component_pixels=80, min_aspect_ratio=3.0)
-    raise ValueError("target_color must be 'red', 'white', or 'black'")
+    if target_color in HSV_TARGET_RANGES:
+        low, high = HSV_TARGET_RANGES[target_color]
+        return segment_hsv_component(bgr, roi, low, high,
+                                     min_component_pixels=80,
+                                     min_aspect_ratio=2.5)
+    raise ValueError(f"target_color must be one of {', '.join(TARGET_COLORS)}")
 
 
 def _transform(value, name):

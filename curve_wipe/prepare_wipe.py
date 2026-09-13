@@ -14,6 +14,7 @@ from .execute import rigid_transform, rotation_angle_deg
 from .plan import ROOT, load_calibration
 from .full_strip import strip_envelope, build as build_strip
 from .reposition import build_path, run as reposition, direct_reference_return
+from .geometry import TARGET_COLORS
 
 REFERENCE = ROOT/'config/scan_initial_pose.json'
 
@@ -117,7 +118,8 @@ def main():
     p.add_argument('--max-return-mm',type=float,default=180.)
     p.add_argument('--max-return-angle-deg',type=float,default=25.)
     p.add_argument('--speed-scale',type=float,default=1.)
-    p.add_argument('--target-color',choices=('red','white','black'),default='red')
+    p.add_argument('--target-color',choices=TARGET_COLORS,default='red',
+                   help='target tape color; detection uses HSV plus elongated-component selection')
     a=p.parse_args()
     try:r=prepare(a.output,a.reference,a.execute,a.max_return_mm/1000,a.max_return_angle_deg,a.speed_scale,a.target_color)
     except Exception as exc:p.exit(1,str(exc)+'\n')

@@ -3,7 +3,7 @@ import json
 import numpy as np
 import pytest
 
-from curve_wipe.geometry import plan_surface, segment_red
+from curve_wipe.geometry import TARGET_COLORS, plan_surface, segment_red, segment_target
 
 
 def scene(shape=(51, 81), curvature=3.0):
@@ -29,6 +29,25 @@ def test_red_mask_respects_roi_and_both_hue_ranges():
     assert mask.tolist() == [[True, True, False, False]]
     with pytest.raises(ValueError, match="explicit"):
         segment_red(cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR), None)
+
+
+def test_common_color_targets_share_the_mask_interface():
+    import cv2
+    roi = np.ones((80, 220), dtype=bool)
+    hues = {
+        'orange': 12, 'yellow': 30, 'lime': 50, 'green': 70,
+        'cyan': 95, 'blue': 115, 'violet': 140, 'purple': 155,
+        'magenta': 170, 'pink': 165, 'brown': 15,
+    }
+    for color in TARGET_COLORS:
+        if color in ('red', 'white', 'black'):
+            continue
+        hsv = np.zeros((80, 220, 3), dtype=np.uint8)
+        hsv[30:42, 20:200] = ([0, 0, 150] if color == 'gray'
+                               else [hues[color], 220, 180])
+        bgr = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
+        mask = segment_target(bgr, roi, color)
+        assert mask[35, 100] and int(mask.sum()) > 1000, color
 
 
 def test_local_normals_follow_analytic_curved_surface():

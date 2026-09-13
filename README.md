@@ -14,7 +14,7 @@ RealSense 曲面估计与 Franka 原始方案擦拭 Demo。项目使用一次扫
 ./run_full_wipe.sh --execute --target-color black --lanes 1
 ```
 
-支持 `red`、`white`、`black` 三种目标颜色。完整参数和硬件注意事项见 [端到端运行说明.md](端到端运行说明.md)，第一版记录见 [VERSION_1.md](VERSION_1.md)。
+支持 `red`、`orange`、`yellow`、`lime`、`green`、`cyan`、`blue`、`violet`、`purple`、`magenta`、`pink`、`brown`、`gray`、`white`、`black`。完整参数和硬件注意事项见 [端到端运行说明.md](端到端运行说明.md)，第一版记录见 [VERSION_1.md](VERSION_1.md)。
 
 ## 测试
 
