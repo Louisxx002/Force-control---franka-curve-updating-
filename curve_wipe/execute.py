@@ -17,10 +17,8 @@ import numpy as np
 from scipy.spatial.transform import Rotation, Slerp
 
 PERIOD = 0.010
-# Allow bounded host scheduling jitter while retaining a hard stall guard.
-# Franka's controller continues receiving Cartesian commands at 100 Hz; a
-# single ~100 ms Python scheduling hiccup should not abort a collision-free
-# free-space segment or leave the arm in Reflex.
+# Python updates targets at 100 Hz; Franky/libfranka runs the hardware loop.
+# Wall-clock delays are checked here, but must not become a catch-up motion.
 MAX_LOOP_DT = 0.12
 STANDOFF = 0.050
 SEARCH_START = 0.015
@@ -84,6 +82,53 @@ def pass_distance(elapsed, duration, length, reverse=False):
 
 class ExecutionError(RuntimeError):
     pass
+
+
+def active_error_names(errors):
+    # pybind Errors has no Python __bool__: even an empty Errors() is truthy.
+    return sorted(name for name in dir(errors) if not name.startswith("_")
+                  and isinstance(getattr(errors, name), (bool, np.bool_))
+                  and bool(getattr(errors, name)))
+
+
+def check_robot_state(state, allowed_modes, log=None, phase=None):
+    """Use one snapshot for both mode and faults; never sample has_errors again."""
+    mode = getattr(state.robot_mode, "value", state.robot_mode)
+    errors = active_error_names(state.current_errors)
+    if errors or mode not in allowed_modes:
+        fault = dict(mode=str(state.robot_mode), current_errors=errors,
+                     last_motion_errors=active_error_names(state.last_motion_errors),
+                     control_command_success_rate=float(state.control_command_success_rate),
+                     phase=phase)
+        if log is not None:
+            log["robot_fault"] = fault
+        raise ExecutionError("robot fault: " + json.dumps(fault, ensure_ascii=False))
+
+
+def motion_step(dt):
+    """A late Python tick slows progress instead of issuing a catch-up jump."""
+    if not np.isfinite(dt) or not 0 < dt <= MAX_LOOP_DT:
+        raise ExecutionError(f"control loop stalled: dt={dt} s")
+    return min(dt, PERIOD)
+
+
+class NormalAdmittance:
+    """First-order normal velocity response, continuous across contact phases."""
+    def __init__(self, velocity=0.0):
+        self.velocity = float(velocity)
+
+    def step(self, height, force, dt):
+        dt = motion_step(dt)
+        target = float(np.clip(ADMITTANCE_GAIN_M_PER_N_S * (force - TARGET_FORCE),
+                               -MAX_ADMITTANCE_RATE_M_S, MAX_ADMITTANCE_RATE_M_S))
+        tau = 0.2
+        decay = math.exp(-dt / tau)
+        displacement = target * dt + (self.velocity - target) * tau * (1 - decay)
+        self.velocity = target + (self.velocity - target) * decay
+        result = height + displacement
+        if result < -MAX_PENETRATION:
+            raise ExecutionError("normal penetration exceeds 12 mm below visual surface")
+        return result
 
 
 def rigid_transform(value, name):
@@ -377,8 +422,7 @@ def execute(plan, *, segment=None, ip="172.16.0.2", log_path=None, max_approach_
         robot = franky.Robot(ip, relative_dynamics_factor=0.05,
                              default_torque_threshold=20.0, default_force_threshold=20.0)
         state = robot.state
-        if state.robot_mode != franky.RobotMode.Idle or robot.has_errors:
-            raise ExecutionError(f"robot must be idle without errors; mode={state.robot_mode}")
+        check_robot_state(state, (franky.RobotMode.Idle.value,), log, "entry")
         pose = np.asarray(state.O_T_EE.matrix, float).copy()
         entry = validate_live_pose(p, pose, state.F_T_EE.matrix, max_approach_m)
         log['approach_distance_mm'] = float(np.linalg.norm(entry-pose[:3,3])*1000)
@@ -424,14 +468,8 @@ def execute(plan, *, segment=None, ip="172.16.0.2", log_path=None, max_approach_
                 # this cell. This is not a replacement for whole-path IK.
                 if not np.isfinite(joints).all() or joints[1] >= 1.72:
                     raise ExecutionError('joint 2 reached conservative 1.72 rad guard; stop before previous boundary')
-                # During asynchronous Cartesian commands the state normally
-                # reports RobotMode.Move.  Compare enum values explicitly so
-                # an otherwise healthy moving state is not mistaken for a
-                # mode fault by wrapper/version differences in franky.
-                mode_value = getattr(state.robot_mode, "value", state.robot_mode)
-                allowed_modes = (franky.RobotMode.Idle.value, franky.RobotMode.Move.value)
-                if robot.has_errors or mode_value not in allowed_modes:
-                    raise ExecutionError(f"robot fault/mode change: {state.robot_mode}")
+                check_robot_state(state, (franky.RobotMode.Idle.value,
+                                          franky.RobotMode.Move.value), log, phase)
                 if not np.isfinite(current).all():
                     raise ExecutionError("nonfinite robot pose")
                 orientation_error = rotation_angle_deg(current[:3, :3], last_rotation)
@@ -448,6 +486,7 @@ def execute(plan, *, segment=None, ip="172.16.0.2", log_path=None, max_approach_
                                        "measured_height_m": measured_h, "tracking_error_m": tracking,
                                        "orientation_error_deg": orientation_error,
                                        "joint_q_rad": joints.tolist(),
+                                       "control_command_success_rate": float(state.control_command_success_rate),
                                        "command_ee_m": last_command.tolist(),
                                        "measured_ee_m": current[:3, 3].tolist()})
                 if tracking > 0.010:
@@ -493,8 +532,7 @@ def execute(plan, *, segment=None, ip="172.16.0.2", log_path=None, max_approach_
                         minimum_time=franky.Duration(int(duration * 1000)))
                     robot.move(franky.CartesianWaypointMotion([waypoint]), asynchronous=False)
                     state = robot.state
-                    if robot.has_errors or state.robot_mode != franky.RobotMode.Idle:
-                        raise ExecutionError(f"robot fault/mode change after free-space motion: {state.robot_mode}")
+                    check_robot_state(state, (franky.RobotMode.Idle.value,), log, phase)
                     actual = np.asarray(state.O_T_EE.matrix, float)
                     if np.linalg.norm(actual[:3, 3] - target) > 0.010:
                         raise ExecutionError("position tracking error exceeds 10 mm after free-space motion")
@@ -514,7 +552,7 @@ def execute(plan, *, segment=None, ip="172.16.0.2", log_path=None, max_approach_
                     dt, force = tick()
                     if expect_free and force > FREE_SPACE_FORCE_LIMIT_N:
                         raise ExecutionError("unexpected contact before slow approach")
-                    elapsed += dt
+                    elapsed += motion_step(dt)
                     u = min(elapsed / duration, 1.0)
                     blend = u**3 * (10 - 15*u + 6*u*u)
                     send(origin + blend * (target - origin), slerp([blend]).as_matrix()[0])
@@ -557,10 +595,11 @@ def execute(plan, *, segment=None, ip="172.16.0.2", log_path=None, max_approach_
                     # Preserve the last streamed position at the handoff.
                     height = float((last_command + last_rotation @ offset - p["points"][0]) @ search_normal)
                     break
-                height -= 0.001 * speed_scale * dt
+                height -= 0.001 * speed_scale * motion_step(dt)
                 if height < -MAX_PENETRATION:
                     raise ExecutionError("no contact within 12 mm below the visual surface")
                 send(ee_position(p["points"][0], height, search_rotation, offset, search_normal), search_rotation)
+            admittance = NormalAdmittance(-0.001 * speed_scale)
             phase, elapsed, stable = "establish_force", 0.0, 0.0
             while stable < 0.25:
                 dt, force = tick()
@@ -568,7 +607,7 @@ def execute(plan, *, segment=None, ip="172.16.0.2", log_path=None, max_approach_
                 if elapsed > 15:
                     raise ExecutionError(f"{TARGET_FORCE} N force did not settle within 15 s")
                 stable = stable + dt if abs(force - TARGET_FORCE) < FORCE_SETTLE_TOLERANCE_N else 0.0
-                height = update_height(height, force, dt)
+                height = admittance.step(height, force, dt)
                 send(ee_position(p["points"][0], height, search_rotation, offset, search_normal), search_rotation)
             # Keep the same planned orientation law through reversal; only
             # path progress reverses. The pass is constant speed after a
@@ -590,9 +629,10 @@ def execute(plan, *, segment=None, ip="172.16.0.2", log_path=None, max_approach_
                         raise ExecutionError("contact lost for >2 s")
                     if elapsed > duration * 3 + 10:
                         raise ExecutionError("wipe did not complete within its time limit")
-                    height = update_height(height, force, dt)
-                    if force > CONTACT_PRESENT_FORCE_N:
-                        progress_time = min(duration, progress_time + dt)
+                    height = admittance.step(height, force, dt)
+                    # Brief force dips are handled by normal admittance; do not
+                    # toggle tangential speed. Sustained loss still aborts above.
+                    progress_time = min(duration, progress_time + motion_step(dt))
                     distance = pass_distance(progress_time, duration, p["length_m"], reverse)
                     path_rotation = rotation_at(p, distance)
                     path_normal = normal_at(p, distance) if p.get("spatial_orientation") else n
@@ -625,6 +665,14 @@ def execute(plan, *, segment=None, ip="172.16.0.2", log_path=None, max_approach_
             log["status"] = "completed"
     except BaseException as exc:
         log["status"], log["error"] = "aborted", f"{type(exc).__name__}: {exc}"
+        # Capture before stop/join can overwrite the original controller fault.
+        if robot is not None and "robot_fault" not in log:
+            try:
+                check_robot_state(robot.state, (franky.RobotMode.Idle.value,
+                                                franky.RobotMode.Move.value), log,
+                                  locals().get("phase"))
+            except Exception as diagnostic_error:
+                log["fault_capture_message"] = str(diagnostic_error)
         raise
     finally:
         # A fault does not trigger a blind retreat or automatic error recovery.
