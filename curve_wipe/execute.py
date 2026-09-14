@@ -31,6 +31,7 @@ CONTACT_PRESENT_FORCE_N = 0.20
 FORCE_SETTLE_TOLERANCE_N = 0.25
 TOTAL_FORCE_LIMIT_N = 8.0
 NORMAL_FORCE_LIMIT_N = 8.0
+CONTACT_TORQUE_LIMIT_NM = 1.5
 # Permit up to 1.5 N of tensile/reverse reaction before stopping.
 MAX_TENSILE_NORMAL_N = 1.5
 FORCE_LOSS_TIMEOUT_S = 2.0
@@ -40,8 +41,9 @@ MAX_SEGMENT_LENGTH = 0.200
 DEFAULT_MAX_APPROACH_M = 0.500
 DEFAULT_MAX_SURFACE_HEIGHT_M = 0.020
 DEFAULT_MAX_NORMAL_ANGLE_DEG = 25.0
-NORMAL_SMOOTHING_SIGMA_M = 0.006
+NORMAL_SMOOTHING_SIGMA_M = 0.020
 WIPE_RAMP_TIME_S = 0.5
+TURNAROUND_HOLD_S = 0.5
 
 
 def validate_approach_limit(value):
@@ -340,8 +342,8 @@ def check_wrench(raw, tare, sign=-1.0, *, reject_negative=True):
     force = float(sign * delta[2])
     if np.linalg.norm(delta[:3]) > TOTAL_FORCE_LIMIT_N:
         raise ExecutionError(f"contact force magnitude exceeds {TOTAL_FORCE_LIMIT_N:g} N")
-    if np.linalg.norm(delta[3:]) > 0.5:
-        raise ExecutionError("contact torque magnitude exceeds 0.5 Nm")
+    if np.linalg.norm(delta[3:]) > CONTACT_TORQUE_LIMIT_NM:
+        raise ExecutionError(f"contact torque magnitude exceeds {CONTACT_TORQUE_LIMIT_NM:g} Nm")
     if force > NORMAL_FORCE_LIMIT_N:
         raise ExecutionError(f"normal force exceeds {NORMAL_FORCE_LIMIT_N:g} N")
     if reject_negative and force < -MAX_TENSILE_NORMAL_N:
@@ -394,6 +396,7 @@ def execute(plan, *, segment=None, ip="172.16.0.2", log_path=None, max_approach_
            "force_basis": "-delta sensor Fz; TCP/EE Z aligned to local surface normal; software median tare",
            "cleanup_errors": [], "max_approach_mm": max_approach_m*1000,
            "free_space_force_limit_N": FREE_SPACE_FORCE_LIMIT_N, "force_control_mode": "normal_force_admittance",
+           "contact_torque_limit_Nm": CONTACT_TORQUE_LIMIT_NM,
            "total_force_limit_N": TOTAL_FORCE_LIMIT_N, "normal_force_limit_N": NORMAL_FORCE_LIMIT_N,
            "max_tensile_normal_N": MAX_TENSILE_NORMAL_N,
            "speed_scale": speed_scale,
@@ -619,6 +622,22 @@ def execute(plan, *, segment=None, ip="172.16.0.2", log_path=None, max_approach_
             duration = max(2.0 * WIPE_RAMP_TIME_S + 0.1,
                            p["length_m"] / nominal_speed + WIPE_RAMP_TIME_S)
             for reverse in (False, True):
+                if reverse:
+                    # Let both Cartesian and joint velocities settle at the
+                    # end of the forward pass before changing direction.
+                    # This avoids starting the reverse command while the
+                    # previous asynchronous pose command is still decaying.
+                    phase = "turnaround_hold"
+                    hold_elapsed = 0.0
+                    distance = p["length_m"]
+                    while hold_elapsed < TURNAROUND_HOLD_S:
+                        dt, force = tick()
+                        height = admittance.step(height, force, dt)
+                        send(ee_position(surface_at(p, distance), height,
+                                         rotation_at(p, distance), offset,
+                                         normal_at(p, distance)),
+                             rotation_at(p, distance))
+                        hold_elapsed += motion_step(dt)
                 phase = "wipe_backward" if reverse else "wipe_forward"
                 lost, elapsed, progress_time = 0.0, 0.0, 0.0
                 while progress_time < duration:
