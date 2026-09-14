@@ -69,6 +69,20 @@ def test_diagonal_red_target_uses_principal_axis():
     assert plan['metadata']['whole_strip_paths_complete']
 
 
+def test_black_target_beats_dark_border_background():
+    import cv2
+    bgr=np.full((100,240,3),180,np.uint8)
+    bgr[72:,:] = 35
+    polygon=np.array([[25,25],[205,75],[201,88],[21,38]],np.int32)
+    cv2.fillPoly(bgr,[polygon],(20,20,20))
+    yy,xx=np.indices((100,240))
+    xyz=np.stack([xx*.001,yy*.001,np.full(xx.shape,.5)],axis=-1)
+    plan,target,envelope=plan_strip(bgr,xyz,np.ones((100,240),bool),
+                                    np.eye(4),np.eye(4),target_color='black')
+    assert target.sum() > 1000 and envelope.sum() >= target.sum()
+    assert plan['metadata']['whole_strip_paths_complete']
+
+
 def test_depth_hole_blocks_whole_lanes_instead_of_short_fallback():
     bgr,xyz,roi=scene();xyz[:,98:103]=np.nan
     plan,_,_=plan_strip(bgr,xyz,roi,np.eye(4),np.eye(4),lane_count=5)

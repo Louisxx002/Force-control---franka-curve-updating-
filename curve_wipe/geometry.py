@@ -160,10 +160,14 @@ def segment_black(bgr, roi, *, max_value=90, min_component_pixels=80,
         elongation = np.sqrt(eigenvalues[-1] / max(eigenvalues[0], 1e-12))
         if elongation < min_aspect_ratio:
             continue
-        candidates.append((int(area), i))
+        # A dark table/tool often forms a much larger component touching the
+        # image border. Prefer an interior elongated component when one is
+        # available; allow_border still permits a clipped tape when it is the
+        # only viable candidate.
+        candidates.append((0 if touches_border else 1, int(area), i))
     if not candidates:
         return np.zeros_like(roi)
-    _, selected = max(candidates)
+    _, _, selected = max(candidates)
     return labels == selected
 
 
