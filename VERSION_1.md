@@ -1,7 +1,7 @@
 # curve_wipe_demo 唯一运行版本（v1）
 
 - 对齐日期：2026-09-14
-- 版本标识：`main@712d7d8`
+- 版本标识：`main@41cb86a`
 - 基线：GitHub `main` 中经过硬件验证的原始方案（不使用 MoveIt）
 - 运行入口：仓库根目录的 `run_full_wipe.sh`
 - 说明：仓库只保留这一套活动代码；旧版本仍可从 Git 历史查阅，不再作为工作树副本。
@@ -49,6 +49,5 @@
 
 ## 已知边界
 
-- 当前日志记录了力和轨迹，但 `contact_coverage_verified` 仍为 `false`，覆盖率尚未由独立传感器确认。
 - 白色和黑色胶带的深度缺失点由邻近曲面点局部拟合重建；拟合残差超过 3 mm 时会拒绝规划。
 - `contact_coverage_verified` 仍为 `false`，覆盖率尚未由独立传感器确认。
