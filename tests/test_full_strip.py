@@ -56,6 +56,19 @@ def test_diagonal_white_target_uses_principal_axis():
     assert plan['metadata']['target_color']=='white'
 
 
+def test_diagonal_red_target_uses_principal_axis():
+    import cv2
+    bgr=np.zeros((100,240,3),np.uint8)
+    polygon=np.array([[25,25],[205,75],[201,88],[21,38]],np.int32)
+    cv2.fillPoly(bgr,[polygon],(0,0,255))
+    yy,xx=np.indices((100,240))
+    xyz=np.stack([xx*.001,yy*.001,np.full(xx.shape,.5)],axis=-1)
+    plan,target,envelope=plan_strip(bgr,xyz,np.ones((100,240),bool),
+                                    np.eye(4),np.eye(4),target_color='red')
+    assert target.sum() > 1000 and envelope.sum() >= target.sum()
+    assert plan['metadata']['whole_strip_paths_complete']
+
+
 def test_depth_hole_blocks_whole_lanes_instead_of_short_fallback():
     bgr,xyz,roi=scene();xyz[:,98:103]=np.nan
     plan,_,_=plan_strip(bgr,xyz,roi,np.eye(4),np.eye(4),lane_count=5)
@@ -79,7 +92,7 @@ def test_two_separate_targets_require_roi():
 def test_clipped_roi_defines_visible_extent():
     bgr,xyz,roi=scene();roi[:,:50]=False
     target, envelope, columns, low, high = strip_envelope(bgr,roi)
-    assert columns[0] == 50 and columns[-1] == 180
+    assert round(columns[0,0]) == 50 and round(columns[-1,0]) == 180
     assert target.sum() > 0 and envelope.sum() >= target.sum()
 
 

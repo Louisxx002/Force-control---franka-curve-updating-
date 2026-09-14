@@ -88,7 +88,7 @@ def _principal_strip_pixels(target):
         lows.append(base + lo*transverse)
         highs.append(base + hi*transverse)
     if len(centers) < 3:
-        raise ValueError('black target has too few longitudinal samples')
+        raise ValueError('target strip has too few longitudinal samples')
     return np.asarray(centers), np.asarray(lows), np.asarray(highs)
 
 
@@ -99,32 +99,29 @@ def strip_envelope(bgr, roi, target_color='red'):
     if len(contours) != 1:
         raise ValueError(f'select an ROI containing exactly one connected {target_color} strip')
     contour = contours[0]
-    x, y, width, height = cv2.boundingRect(contour)
-    principal_geometry = target_color in ('black', 'white')
-    if not principal_geometry and width < 3*height:
-        raise ValueError('this planner requires a nearly horizontal elongated strip')
     # Filled external outline identifies the same object across printed letters.
     # It never changes XYZ or marks invalid depth as measured.
     filled = np.zeros(target.shape, np.uint8)
     cv2.drawContours(filled, [contour], -1, 1, -1)
-    if principal_geometry:
-        return target, filled.astype(bool), *_principal_strip_pixels(filled.astype(bool))
-    low, high = [], []
-    envelope = np.zeros_like(target)
-    for u in range(x, x+width):
-        rows = np.flatnonzero(filled[:, u])
-        if not len(rows): raise ValueError('target has a disconnected longitudinal column')
-        lo, hi = int(rows[0]), int(rows[-1])
-        if not roi[lo:hi+1, u].all(): raise ValueError('strip envelope exceeds selected ROI')
-        low.append(lo); high.append(hi); envelope[lo:hi+1, u] = True
-    return target, envelope, np.arange(x, x+width), np.array(low), np.array(high)
+    principal_geometry = True
+    envelope = filled.astype(bool)
+    if not np.all(roi[envelope]):
+        raise ValueError('strip envelope exceeds selected ROI')
+    yy, xx = np.where(envelope)
+    if len(xx) < 3:
+        raise ValueError('target strip has too few pixels')
+    eigenvalues = np.linalg.eigvalsh(np.cov(np.column_stack((xx, yy)).T))
+    elongation = np.sqrt(eigenvalues[-1] / max(eigenvalues[0], 1e-12))
+    if elongation < 3.0:
+        raise ValueError('target component is not an elongated strip')
+    return target, envelope, *_principal_strip_pixels(envelope)
 
 
 def plan_strip(bgr, xyz, roi, tbc, tet, lane_count=1, tgrip=None, target_color='red'):
     if not isinstance(lane_count, int) or not 1 <= lane_count <= 25:
         raise ValueError('lane_count must be an integer between 1 and 25')
     target, envelope, columns, low, high = strip_envelope(bgr, roi, target_color)
-    principal_geometry = target_color in ('black', 'white')
+    principal_geometry = True
     xyz = np.asarray(xyz, float)
     if xyz.shape != (*target.shape, 3): raise ValueError('XYZ image shape mismatch')
     tbc, tet = _transform(tbc, 'T_base_camera'), _transform(tet, 'T_ee_tcp')
