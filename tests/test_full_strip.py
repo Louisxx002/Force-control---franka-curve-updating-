@@ -42,6 +42,20 @@ def test_white_target_mode_selects_elongated_bright_component():
     assert plan['metadata']['whole_strip_paths_complete']
 
 
+def test_diagonal_white_target_uses_principal_axis():
+    import cv2
+    bgr=np.full((100,240,3),145,np.uint8)
+    polygon=np.array([[25,25],[205,75],[201,88],[21,38]],np.int32)
+    cv2.fillPoly(bgr,[polygon],(235,235,235))
+    yy,xx=np.indices((100,240))
+    xyz=np.stack([xx*.001,yy*.001,np.full(xx.shape,.5)],axis=-1)
+    plan,target,envelope=plan_strip(bgr,xyz,np.ones((100,240),bool),
+                                    np.eye(4),np.eye(4),target_color='white')
+    assert target.sum() > 1000 and envelope.sum() >= target.sum()
+    assert plan['metadata']['whole_strip_paths_complete']
+    assert plan['metadata']['target_color']=='white'
+
+
 def test_depth_hole_blocks_whole_lanes_instead_of_short_fallback():
     bgr,xyz,roi=scene();xyz[:,98:103]=np.nan
     plan,_,_=plan_strip(bgr,xyz,roi,np.eye(4),np.eye(4),lane_count=5)

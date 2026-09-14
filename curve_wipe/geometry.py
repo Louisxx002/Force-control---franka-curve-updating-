@@ -112,7 +112,17 @@ def segment_white(bgr, roi, *, max_saturation=80, min_value=170,
     candidates = []
     for i in range(1, count):
         x, y, width, height, area = stats[i]
-        if area < min_component_pixels or width < min_aspect_ratio * max(height, 1):
+        if area < min_component_pixels:
+            continue
+        yy, xx = np.where(labels == i)
+        if len(xx) < 3:
+            continue
+        # Use the component's principal axis rather than its axis-aligned
+        # bounding box.  A diagonal tape can have a modest width/height ratio
+        # even though it is clearly a long, thin object.
+        eigenvalues = np.linalg.eigvalsh(np.cov(np.column_stack((xx, yy)).T))
+        elongation = np.sqrt(eigenvalues[-1] / max(eigenvalues[0], 1e-12))
+        if elongation < min_aspect_ratio:
             continue
         candidates.append((int(area), i))
     if not candidates:

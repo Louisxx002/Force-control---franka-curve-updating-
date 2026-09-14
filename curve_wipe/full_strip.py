@@ -100,13 +100,14 @@ def strip_envelope(bgr, roi, target_color='red'):
         raise ValueError(f'select an ROI containing exactly one connected {target_color} strip')
     contour = contours[0]
     x, y, width, height = cv2.boundingRect(contour)
-    if target_color != 'black' and width < 3*height:
+    principal_geometry = target_color in ('black', 'white')
+    if not principal_geometry and width < 3*height:
         raise ValueError('this planner requires a nearly horizontal elongated strip')
     # Filled external outline identifies the same object across printed letters.
     # It never changes XYZ or marks invalid depth as measured.
     filled = np.zeros(target.shape, np.uint8)
     cv2.drawContours(filled, [contour], -1, 1, -1)
-    if target_color == 'black':
+    if principal_geometry:
         return target, filled.astype(bool), *_principal_strip_pixels(filled.astype(bool))
     low, high = [], []
     envelope = np.zeros_like(target)
@@ -123,7 +124,7 @@ def plan_strip(bgr, xyz, roi, tbc, tet, lane_count=1, tgrip=None, target_color='
     if not isinstance(lane_count, int) or not 1 <= lane_count <= 25:
         raise ValueError('lane_count must be an integer between 1 and 25')
     target, envelope, columns, low, high = strip_envelope(bgr, roi, target_color)
-    black_geometry = target_color == 'black'
+    principal_geometry = target_color in ('black', 'white')
     xyz = np.asarray(xyz, float)
     if xyz.shape != (*target.shape, 3): raise ValueError('XYZ image shape mismatch')
     tbc, tet = _transform(tbc, 'T_base_camera'), _transform(tet, 'T_ee_tcp')
@@ -137,10 +138,10 @@ def plan_strip(bgr, xyz, roi, tbc, tet, lane_count=1, tgrip=None, target_color='
     segments, failures, dense_lanes = [], [], []
     white_filled_points = 0
     white_fill_residuals = []
-    if black_geometry:
+    if principal_geometry:
         center_pixels, low_pixels, high_pixels = _principal_strip_pixels(target)
     for lane, fraction in enumerate([.5] if lane_count == 1 else np.linspace(0, 1, lane_count)):
-        if black_geometry:
+        if principal_geometry:
             pixel_points = low_pixels*(1-fraction) + high_pixels*fraction
         else:
             rows = np.rint(low+fraction*(high-low)).astype(int)
@@ -220,7 +221,7 @@ def plan_strip(bgr, xyz, roi, tbc, tet, lane_count=1, tgrip=None, target_color='
     if complete:
         dense=np.asarray(dense_lanes)
         meta['max_neighbor_lane_gap_m']=float(np.linalg.norm(np.diff(dense,axis=0),axis=2).max()) if lane_count>1 else None
-        if black_geometry:
+        if principal_geometry:
             edges = np.stack([
                 [xyz[int(round(v)), int(round(u))] for u, v in low_pixels],
                 [xyz[int(round(v)), int(round(u))] for u, v in high_pixels]])
